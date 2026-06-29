@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LynxChat — irc.freenode.net</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #1a1a1a;
+      --bg2:       #222222;
+      --bg3:       #2a2a2a;
+      --border:    #333333;
+      --text:      #c8c8c8;
+      --text-dim:  #666666;
+      --text-mid:  #888888;
+      --accent:    #4a9eff;
+      --nick1:     #e74c3c;
+      --nick2:     #2ecc71;
+      --join:      #27ae60;
+      --part:      #e67e22;
+      --system:    #7f8c8d;
+      --input-bg:  #111111;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Title bar ── */
+    #titlebar {
+      background: #111;
+      border-bottom: 1px solid #000;
+      padding: 4px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+    }
+    #titlebar .logo {
+      color: var(--accent);
+      font-weight: bold;
+      font-size: 14px;
+      letter-spacing: 1px;
+    }
+    #titlebar .version { color: var(--text-dim); font-size: 11px; }
+    #titlebar .server  { color: var(--text-mid); margin-left: auto; font-size: 11px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .dot-r { background: #e74c3c; }
+    .dot-y { background: #f1c40f; }
+    .dot-g { background: #2ecc71; }
+    .win-controls { display: flex; gap: 6px; margin-right: 8px; }
+
+    /* ── Menu bar ── */
+    #menubar {
+      background: #1d1d1d;
+      border-bottom: 1px solid var(--border);
+      padding: 2px 8px;
+      display: flex;
+      gap: 2px;
+      user-select: none;
+    }
+    .menu-item {
+      padding: 2px 10px;
+      color: var(--text-mid);
+      font-size: 12px;
+      cursor: default;
+      border-radius: 2px;
+    }
+    .menu-item:hover { background: var(--bg3); color: var(--text); }
+
+    /* ── Main layout ── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Channel sidebar ── */
+    #sidebar {
+      width: 170px;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-section {
+      padding: 4px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-header {
+      padding: 3px 10px;
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .channel-item {
+      padding: 3px 12px;
+      cursor: default;
+      color: var(--text-mid);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .channel-item:hover { background: var(--bg3); }
+    .channel-item.active {
+      background: var(--bg3);
+      color: var(--text);
+      border-left: 2px solid var(--accent);
+      padding-left: 10px;
+    }
+    .channel-item.unread { color: #f39c12; }
+    .channel-prefix { color: var(--text-dim); }
+
+    /* ── Chat area ── */
+    #chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Topic bar */
+    #topicbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--text-mid);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #topicbar .chan-name { color: var(--accent); font-weight: bold; margin-right: 6px; }
+    #topicbar .topic-text { color: var(--text-dim); }
+
+    /* Messages */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    #messages::-webkit-scrollbar { width: 6px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .msg {
+      display: flex;
+      padding: 1px 10px;
+      gap: 0;
+      animation: fadein 0.15s ease;
+    }
+    @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+    .msg:hover { background: rgba(255,255,255,0.03); }
+
+    .msg-time {
+      color: var(--text-dim);
+      min-width: 52px;
+      font-size: 11px;
+      margin-top: 1px;
+      flex-shrink: 0;
+    }
+    .msg-nick {
+      min-width: 110px;
+      text-align: right;
+      padding-right: 8px;
+      font-weight: bold;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .nick-kamitor { color: var(--nick1); }
+    .nick-nikita  { color: var(--nick2); }
+    .msg-body { color: var(--text); flex: 1; word-break: break-word; }
+
+    /* System / server messages */
+    .msg-system .msg-nick   { color: var(--system); }
+    .msg-system .msg-body   { color: var(--system); font-style: italic; }
+    .msg-server .msg-body   { color: var(--system); }
+    .msg-server .msg-nick   { color: var(--text-dim); }
+    .msg-join   .msg-body   { color: var(--join); font-style: italic; }
+    .msg-part   .msg-body   { color: var(--part); font-style: italic; }
+
+    /* Day separator */
+    .day-sep {
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 11px;
+      padding: 6px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin: 6px 0;
+    }
+
+    /* Input area */
+    #inputbar {
+      border-top: 1px solid var(--border);
+      background: var(--input-bg);
+      display: flex;
+      align-items: center;
+      padding: 5px 8px;
+      gap: 8px;
+    }
+    #inputbar .chan-label {
+      color: var(--accent);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    #inputbar input {
+      flex: 1;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 4px 8px;
+      outline: none;
+    }
+    #inputbar input:focus { border-color: #444; }
+    #inputbar .send-btn {
+      background: #2a4a6e;
+      border: 1px solid #3a6a9e;
+      color: #aad4ff;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    #inputbar .send-btn:hover { background: #2d5280; }
+
+    /* Status bar */
+    #statusbar {
+      background: #111;
+      border-top: 1px solid #000;
+      padding: 2px 10px;
+      font-size: 10px;
+      color: var(--text-dim);
+      display: flex;
+      gap: 16px;
+    }
+    #statusbar .lag { margin-left: auto; }
+    .status-ok { color: var(--join); }
+
+    /* ── User list sidebar ── */
+    #userlist {
+      width: 140px;
+      background: var(--bg2);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .userlist-header {
+      padding: 4px 10px;
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid var(--border);
+    }
+    .user-item {
+      padding: 2px 10px;
+      font-size: 12px;
+      color: var(--text-mid);
+      cursor: default;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .user-item:hover { background: var(--bg3); }
+    .user-mode { color: var(--text-dim); font-size: 10px; }
+    .user-name-r { color: var(--nick1); }
+    .user-name-g { color: var(--nick2); }
+    .user-away { text-decoration: line-through; color: var(--text-dim); }
+    .userlist-count {
+      padding: 4px 10px;
+      font-size: 10px;
+      color: var(--text-dim);
+      border-top: 1px solid var(--border);
+      margin-top: auto;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Title bar -->
+<div id="titlebar">
+  <div class="win-controls">
+    <span class="dot dot-r"></span>
+    <span class="dot dot-y"></span>
+    <span class="dot dot-g"></span>
+  </div>
+  <span class="logo">LynxChat</span>
+  <span class="version">v2.8.1</span>
+  <span class="server">irc.freenode.net · Kamitor</span>
+</div>
+
+<!-- Menu bar -->
+<div id="menubar">
+  <div class="menu-item">LynxChat</div>
+  <div class="menu-item">Server</div>
+  <div class="menu-item">Channel</div>
+  <div class="menu-item">Query</div>
+  <div class="menu-item">Settings</div>
+  <div class="menu-item">Scripts</div>
+  <div class="menu-item">Help</div>
+</div>
+
+<!-- Main -->
+<div id="main">
+
+  <!-- Left: channel list -->
+  <div id="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-header">Freenode</div>
+      <div class="channel-item"><span class="channel-prefix">☰ </span>Status</div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-header">Channels</div>
+      <div class="channel-item unread"><span class="channel-prefix"># </span>linux</div>
+      <div class="channel-item active"><span class="channel-prefix"># </span>general</div>
+      <div class="channel-item"><span class="channel-prefix"># </span>gaming</div>
+      <div class="channel-item"><span class="channel-prefix"># </span>offtopic</div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-header">Private</div>
+      <div class="channel-item"><span class="channel-prefix">◎ </span>Nikita_UZ</div>
+    </div>
+  </div>
+
+  <!-- Center: chat -->
+  <div id="chat-area">
+
+    <!-- Topic -->
+    <div id="topicbar">
+      <span class="chan-name">#general</span>
+      <span class="topic-text">Welcome to #general — keep it friendly | off-topic → #offtopic | gaming chat → #gaming</span>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages">
+
+      <!-- Server greeting -->
+      <div class="msg msg-server">
+        <span class="msg-time">18:31</span>
+        <span class="msg-nick" style="color:#555">***</span>
+        <span class="msg-body">Now talking on #general</span>
+      </div>
+      <div class="msg msg-server">
+        <span class="msg-time">18:31</span>
+        <span class="msg-nick" style="color:#555">***</span>
+        <span class="msg-body">Topic set by ChanServ on Thu Jun 12 09:14:07 2025</span>
+      </div>
+
+      <!-- Join messages -->
+      <div class="msg msg-join">
+        <span class="msg-time">18:31</span>
+        <span class="msg-nick" style="color:#27ae60">→</span>
+        <span class="msg-body">Kamitor (~kamitor@unaffiliated/kamitor) has joined #general</span>
+      </div>
+      <div class="msg msg-join">
+        <span class="msg-time">18:33</span>
+        <span class="msg-nick" style="color:#27ae60">→</span>
+        <span class="msg-body">Nikita_UZ (~nikita@185.123.47.91) has joined #general</span>
+      </div>
+
+      <div class="day-sep">Today — Sunday 29 June 2025</div>
+
+      <!-- Conversation -->
+      <div class="msg">
+        <span class="msg-time">18:34</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">hey Kamitor, you there?</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:34</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">yo! yeah I'm here. haven't seen you online in a while</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:35</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">yeah been a bit hectic. listen, I have some news</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:35</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">oh? what's up</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:36</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">I'm leaving the country. for good this time</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:36</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">wait, seriously?? when did this happen</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:37</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">already did, happened last week. it was pretty sudden</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:37</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">man, I had no idea</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:38</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">yeah it all moved fast. and I won't be coming back to the choir either. tell the guys I said hey</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:38</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">damn. we're definitely going to miss you there, you had one of the better bass voices in the section lol</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:39</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">haha appreciate it. it was good while it lasted</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:39</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">so where are you now then?</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:40</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">Uzbekistan</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:40</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">UZBEKISTAN?? as in... Central Asia Uzbekistan?</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:40</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">yep lol. Tashkent specifically</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:41</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">bro that is not where I expected you to end up</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:41</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">haha honestly same. but it's actually pretty nice here. lots of history, food is incredible</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:42</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">what's the internet situation like over there?</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:43</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">surprisingly solid actually. fast enough for gaming</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:43</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">oh yeah? what are you playing these days</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:44</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">been getting back into RTS stuff. actually wanted to ask — you free tonight?</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:44</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">yeah should be, why?</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:45</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">want to play Beyond All Reason together? I installed it yesterday, thing runs way better than I expected</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:45</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">wait you play BAR?? I've been on it for months lol</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:46</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">haha no way. yeah I'm still learning the economy side of it but I've been watching some games</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:46</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">100% I'm down, I can show you the ropes. what time works for you?</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:47</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">maybe 20:00 your time? should be around 23:00 here but I don't have work tomorrow</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:47</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">works for me. I'll be online, just ping me here or on Discord</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:48</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">perfect. and hey — thanks for not making a big deal out of the choir thing</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:48</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">life moves, man. you're still you wherever you are. we'll catch up properly tonight</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:49</span>
+        <span class="msg-nick nick-nikita">&lt;Nikita_UZ&gt;</span>
+        <span class="msg-body">:) alright see you at 20:00</span>
+      </div>
+
+      <div class="msg">
+        <span class="msg-time">18:49</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">see you then</span>
+      </div>
+
+    </div>
+
+    <!-- Input -->
+    <div id="inputbar">
+      <span class="chan-label">[#general]</span>
+      <input type="text" placeholder="Type a message…" autocomplete="off" spellcheck="false">
+      <button class="send-btn">Send</button>
+    </div>
+
+  </div><!-- /chat-area -->
+
+  <!-- Right: user list -->
+  <div id="userlist">
+    <div class="userlist-header">Users — 47</div>
+
+    <div class="user-item">
+      <span class="user-mode">@</span>
+      <span style="color:#9b59b6">ChanServ</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">@</span>
+      <span style="color:#9b59b6">mbot</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span class="user-name-r">Kamitor</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span class="user-name-g">Nikita_UZ</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span style="color:#3498db">xterm1</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span style="color:#e67e22">grumpydev</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span class="user-away">zR0k</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span style="color:#1abc9c">Aqualynx</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span class="user-away">darkpulse</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span style="color:#95a5a6">realnerd42</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span class="user-away">Vel0city</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span style="color:#e74c3c">fxbt</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span style="color:#2980b9">k_runner</span>
+    </div>
+    <div class="user-item">
+      <span class="user-mode">&nbsp;</span>
+      <span class="user-away">nullref</span>
+    </div>
+
+    <div class="userlist-count">47 users (2 ops, 45 regular)</div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- Status bar -->
+<div id="statusbar">
+  <span class="status-ok">● Connected</span>
+  <span>irc.freenode.net:6697 (SSL)</span>
+  <span>Nick: Kamitor</span>
+  <span>Mode: +i</span>
+  <span class="lag">Lag: 42ms</span>
+</div>
+
+<script>
+  // Scroll to bottom on load
+  const msgs = document.getElementById('messages');
+  msgs.scrollTop = msgs.scrollHeight;
+
+  // Enter key on input (cosmetic — no real functionality)
+  const input = document.querySelector('#inputbar input');
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const val = input.value.trim();
+      if (!val) return;
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2,'0');
+      const m = String(now.getMinutes()).padStart(2,'0');
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = `
+        <span class="msg-time">${h}:${m}</span>
+        <span class="msg-nick nick-kamitor">&lt;Kamitor&gt;</span>
+        <span class="msg-body">${val.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`;
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+      input.value = '';
+    }
+  });
+  document.querySelector('.send-btn').addEventListener('click', () => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+</script>
+</body>
+</html>
